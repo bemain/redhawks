@@ -1,0 +1,10 @@
+version: '2'
+services:
+
+  redhawks:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8080:8080" # TODO: Should be 80:8080
+

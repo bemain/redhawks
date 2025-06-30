@@ -1,5 +1,5 @@
 from enum import Enum
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Response
 from fastapi.staticfiles import StaticFiles
 import datetime
 import requests
@@ -8,7 +8,7 @@ import os
 app = FastAPI()
 
 # Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 # Get environment vars
@@ -30,12 +30,12 @@ class Message(str, Enum):
 
 
 @app.post("/sms/request")
-def send_request_sms(to: str):
+def send_request_sms(to: str, response: Response):
     """
     Send a (two-way) SMS to the given [number] and ask if we can call them.
     Register a response URL for if the user responds "okay".
     """
-    response = requests.post(
+    res = requests.post(
         "https://api.46elks.com/a1/sms",
         auth=(ELK46_USERNAME, ELK46_PASSWORD),
         data={
@@ -44,15 +44,16 @@ def send_request_sms(to: str):
             "message": "Är det okej att vi ringer upp dig? Svara 'okej' isåfall."
         }
     )
-    print(response.text)
+    response.status_code = res.status_code
+    print(res.text)
 
 
 @app.post("/sms/final")
-def send_final_sms(to: str):
+def send_final_sms(to: str, response: Response):
     """
     Send a SMS to the given number nudging them to order tickets for the upcoming games.
     """
-    response = requests.post(
+    res = requests.post(
         "https://api.46elks.com/a1/sms",
         auth=(ELK46_USERNAME, ELK46_PASSWORD),
         data={
@@ -61,7 +62,8 @@ def send_final_sms(to: str):
             "message": "Här kommer länken jag pratade om!"
         }
     )
-    print(response.text)
+    response.status_code = res.status_code
+    print(res.text)
 
 
 @app.post("/sms/receive")
