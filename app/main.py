@@ -3,6 +3,7 @@ from fastapi import FastAPI, Response, status, Request
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import unquote
 import requests
+import logging
 import os
 
 app = FastAPI()
@@ -19,6 +20,9 @@ ELK46_NUMBER = str(os.getenv("ELK46_NUMBER"))
 HOST_URL = str(os.getenv("HOST_URL"))
 
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 
 class Message(str, Enum):
     percy1 = "percy1"
@@ -29,12 +33,14 @@ class Message(str, Enum):
     someone3 = "someone3"
 
 
-@app.post("/sms/request")
-def send_request_sms(to: str, response: Response):
+@app.post("/sms/request", responses={status.HTTP_500_INTERNAL_SERVER_ERROR: {}})
+def send_request_sms(to: str):
     """
     Send a (two-way) SMS to the given [number] and ask if we can call them.
     Register a response URL for if the user responds "okay".
     """
+    logger.info(f"Asking for permission to call {to}.")
+
     res = requests.post(
         "https://api.46elks.com/a1/sms",
         auth=(ELK46_USERNAME, ELK46_PASSWORD),
@@ -44,15 +50,18 @@ def send_request_sms(to: str, response: Response):
             "message": "Är det okej att vi ringer upp dig? Svara 'okej' isåfall."
         }
     )
-    response.status_code = res.status_code
-    print(res.text)
+    if res.status_code != status.HTTP_200_OK:
+        logger.error(f"Failed to send request SMS to {to}; {res.text}")
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@app.post("/sms/final")
-def send_final_sms(to: str, response: Response):
+@app.post("/sms/final", responses={status.HTTP_500_INTERNAL_SERVER_ERROR: {}})
+def send_final_sms(to: str):
     """
     Send a SMS to the given number nudging them to order tickets for the upcoming games.
     """
+    logger.info(f"Sending final SMS to {to}.")
+
     res = requests.post(
         "https://api.46elks.com/a1/sms",
         auth=(ELK46_USERNAME, ELK46_PASSWORD),
@@ -62,8 +71,10 @@ def send_final_sms(to: str, response: Response):
             "message": "Här kommer länken jag pratade om! \nhttps://youtu.be/gtZAjLyrM30?si=laMjoa_7lXT7HViC"
         }
     )
-    response.status_code = res.status_code
-    print(res.text)
+    if res.status_code != status.HTTP_200_OK:
+        logger.error(f"Failed to send final SMS to {to}; {res.text}")
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
 
 
 @app.post("/sms/receive", responses={status.HTTP_400_BAD_REQUEST: {}})
@@ -80,6 +91,7 @@ async def receive_sms(request: Request):
         params[parts[0]] = parts[1]
     
     if "to" not in params or "from" not in params or "message" not in params:
+        logger.error(f"SMS data received from 46elks is missing fields; {params}")
         return Response(status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     to: str = params["to"]
@@ -88,25 +100,30 @@ async def receive_sms(request: Request):
 
 
     if not to == ELK46_NUMBER:
+        logger.error(f"Received SMS from {from_} was sent to {to} and not to our allocated 46elks number.")
         return Response(status.HTTP_400_BAD_REQUEST)
     
     # Maybe we need some way to check that we recently asked for permission to call, so that we don"t just call every time to user writes "okay".
     # TODO: Check for more variations
     if message.lower() in ["okay", "ok", "sure", "yes", "okej", "ja", "visst", "absolut"]:
-        print("OKEJ!")
         # TODO: Obtain which message the user wants somehow
-        send_call(from_, Message.percy1)
+        res = send_call(from_, Message.percy1)
+        if res.status_code != status.HTTP_200_OK:
+            return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    else:
+        logger.info(f"Call permission denied for {from_}.")
     
     return Response() # We have to return a response with an empty body, otherwise 46elks will forward the body as a message to the user.
 
 
-def send_call(to: str, message: Message):
+def send_call(to: str, message: Message) -> requests.Response:
     """
     Call the given [number] and deliver the selected message [m].
     When the user hangs up, send them a final SMS.
     """
-    print(f"Calling with message {message.value}")
-    response = requests.post(
+    logger.info(f"Calling {to} and delivering message {message.value}.")
+
+    res = requests.post(
         "https://api.46elks.com/a1/calls",
         auth=(ELK46_USERNAME, ELK46_PASSWORD),
         data={
@@ -116,7 +133,9 @@ def send_call(to: str, message: Message):
             "whenhangup": f"{HOST_URL}/sms/final?to={to}"
         }
     )
-    print(response.text)
+    if res.status_code != status.HTTP_200_OK:
+        logger.error(f"Failed to call {to}; {res.text}")
+    return res
     
     
 
