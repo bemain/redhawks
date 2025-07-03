@@ -59,18 +59,15 @@ def send_final_sms(to: str, response: Response):
         data={
             "from": ELK46_NUMBER,
             "to": to,
-            "message": "Här kommer länken jag pratade om!"
+            "message": "Här kommer länken jag pratade om! \nhttps://youtu.be/gtZAjLyrM30?si=laMjoa_7lXT7HViC"
         }
     )
     response.status_code = res.status_code
     print(res.text)
 
 
-@app.post("/sms/receive", responses={status.HTTP_403_FORBIDDEN: {}})
-async def receive_sms(
-    response: Response,
-    request: Request,
-):
+@app.post("/sms/receive", responses={status.HTTP_400_BAD_REQUEST: {}})
+async def receive_sms(request: Request):
     """
     Receive responses to any SMS:s sent.
     If a user responds "okay" to if we may call them, perform a call.
@@ -81,6 +78,9 @@ async def receive_sms(
     for val in body.split("&"):
         parts = val.split("=")
         params[parts[0]] = parts[1]
+    
+    if "to" not in params or "from" not in params or "message" not in params:
+        return Response(status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     to: str = params["to"]
     from_: str = params["from"]
@@ -88,15 +88,16 @@ async def receive_sms(
 
 
     if not to == ELK46_NUMBER:
-        response.status_code = status.HTTP_403_FORBIDDEN
-        return
+        return Response(status.HTTP_400_BAD_REQUEST)
     
     # Maybe we need some way to check that we recently asked for permission to call, so that we don"t just call every time to user writes "okay".
     # TODO: Check for more variations
-    if message.lower() in ["okay", "ok", "sure", "yes", "okej"]:
+    if message.lower() in ["okay", "ok", "sure", "yes", "okej", "ja", "visst", "absolut"]:
         print("OKEJ!")
         # TODO: Obtain which message the user wants somehow
         send_call(from_, Message.percy1)
+    
+    return Response() # We have to return a response with an empty body, otherwise 46elks will forward the body as a message to the user.
 
 
 def send_call(to: str, message: Message):
