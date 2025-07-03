@@ -1,0 +1,47 @@
+@startuml API Overview
+' Define participants in the sequence diagram
+actor User
+box "Python API" #LightBlue
+    participant "/sms/request" as SMSRequestEndpoint
+    participant "/sms/receive" as SMSReceiveEndpoint
+    participant "/sms/final" as SMSFinalEndpoint
+end box
+participant "Communication Service" as CommsService
+box #LightBlue
+    database "/static/audio" as AudioDir
+end box
+
+
+' Start the sequence flow
+User -> SMSRequestEndpoint: Inputs Phone Number (via UI)
+
+' Requesting Call Permission
+SMSRequestEndpoint -> CommsService: Send SMS
+CommsService --> User: "Can we call you?"
+
+' Receiving User's Response
+User -> CommsService: Sends SMS Reply
+CommsService -> SMSReceiveEndpoint: User's Answer
+
+' Conditional Call & Follow-up SMS
+alt receives "okay"
+    SMSReceiveEndpoint -> CommsService: Initiate Call
+    activate CommsService
+    CommsService -> AudioDir: Pull audio file
+    AudioDir --> CommsService: Audio file content
+    CommsService --> User: Plays Audio File
+    deactivate CommsService
+    note over CommsService, User: Call ends
+
+    ' Sending final SMS
+    CommsService -> SMSFinalEndpoint: Receive hangup
+    SMSFinalEndpoint -> CommsService: Send SMS
+    CommsService --> User: "Don't miss out! Buy tickets now!"
+    note over CommsService, User: No further communication
+    ...
+else receives "no" or anything else
+    SMSReceiveEndpoint -> SMSReceiveEndpoint: Log "Call permission denied"
+    note over SMSReceiveEndpoint: No call initiated, no further SMS
+end
+
+@enduml
