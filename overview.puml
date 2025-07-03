@@ -37,10 +37,8 @@ alt receives "okay"
     CommsService -> SMSFinalEndpoint: Receive hangup
     SMSFinalEndpoint -> CommsService: Send SMS
     CommsService --> User: "Don't miss out! Buy tickets now!"
-    note over CommsService, User: No further communication
     ...
 else receives "no" or anything else
-    SMSReceiveEndpoint -> SMSReceiveEndpoint: Log "Call permission denied"
     note over SMSReceiveEndpoint: No call initiated, no further SMS
 end
 
