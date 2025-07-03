@@ -1,7 +1,7 @@
 from enum import Enum
-from fastapi import FastAPI, Query, Response
+from fastapi import FastAPI, Response, status, Request
 from fastapi.staticfiles import StaticFiles
-import datetime
+from urllib.parse import unquote
 import requests
 import os
 
@@ -66,29 +66,37 @@ def send_final_sms(to: str, response: Response):
     print(res.text)
 
 
-@app.post("/sms/receive")
-def receive_sms(
-    id: str,
-    message: str = "",
-    from_number: str = Query(alias="from"),
-    to: str | None = None,
-    direction: str = "incoming",
-    created: datetime.datetime | None = None
+@app.post("/sms/receive", responses={status.HTTP_403_FORBIDDEN: {}})
+async def receive_sms(
+    response: Response,
+    request: Request,
 ):
     """
     Receive responses to any SMS:s sent.
     If a user responds "okay" to if we may call them, perform a call.
     """
-    print(to)
+    # By some reason, 46elks sends a body that looks like a HTTP path parameter list, and FastAPI expects JSON.
+    body = unquote((await request.body()).decode("utf-8"))
+    params: dict[str, str] = {}
+    for val in body.split("&"):
+        parts = val.split("=")
+        params[parts[0]] = parts[1]
+
+    to: str = params["to"]
+    from_: str = params["from"]
+    message: str = params["message"]
+
 
     if not to == ELK46_NUMBER:
+        response.status_code = status.HTTP_403_FORBIDDEN
         return
     
     # Maybe we need some way to check that we recently asked for permission to call, so that we don"t just call every time to user writes "okay".
     # TODO: Check for more variations
     if message.lower() in ["okay", "ok", "sure", "yes", "okej"]:
+        print("OKEJ!")
         # TODO: Obtain which message the user wants somehow
-        send_call(from_number, Message.percy1)
+        send_call(from_, Message.percy1)
 
 
 def send_call(to: str, message: Message):
@@ -96,13 +104,14 @@ def send_call(to: str, message: Message):
     Call the given [number] and deliver the selected message [m].
     When the user hangs up, send them a final SMS.
     """
+    print(f"Calling with message {message.value}")
     response = requests.post(
         "https://api.46elks.com/a1/calls",
         auth=(ELK46_USERNAME, ELK46_PASSWORD),
         data={
             "from": ELK46_NUMBER,
             "to": to,
-            "voice_start": {"play": f"{HOST_URL}/static/audio/{message.value}.mp3"},
+            "voice_start": f'{{"play": "{HOST_URL}/static/audio/{message.value}.mp3"}}',
             "whenhangup": f"{HOST_URL}/sms/final?to={to}"
         }
     )
